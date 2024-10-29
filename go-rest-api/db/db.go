@@ -1,81 +1,36 @@
-package controller
+package db
 
 import (
-	"go-rest-api/model"
-	"go-rest-api/usecase"
-	"net/http"
+	"fmt"
+	"log"
 	"os"
-	"time"
 
-	"github.com/labstack/echo/v4"
+	"github.com/joho/godotenv"
+	"gorm.io/driver/postgres"
+	"gorm.io/gorm"
 )
 
-type IUserController interface {
-	SignUp(c echo.Context) error
-	LogIn(c echo.Context) error
-	LogOut(c echo.Context) error
-	CsrfToken(c echo.Context) error
-}
-
-type userController struct {
-	uu usecase.IUserUsecase
-}
-
-func NewUserController(uu usecase.IUserUsecase) IUserController {
-	return &userController{uu}
-}
-
-func (uc *userController) SignUp(c echo.Context) error {
-	user := model.User{}
-	if err := c.Bind(&user); err != nil {
-		return c.JSON(http.StatusBadRequest, err.Error())
+func NewDB() *gorm.DB {
+	if os.Getenv("GO_ENV") == "dev" {
+		err := godotenv.Load()
+		if err != nil {
+			log.Fatalln(err)
+		}
 	}
-	userRes, err := uc.uu.SignUp(user)
+	url := fmt.Sprintf("postgres://%s:%s@%s:%s/%s", os.Getenv("POSTGRES_USER"),
+		os.Getenv("POSTGRES_PW"), os.Getenv("POSTGRES_HOST"),
+		os.Getenv("POSTGRES_PORT"), os.Getenv("POSTGRES_DB"))
+	db, err := gorm.Open(postgres.Open(url), &gorm.Config{})
 	if err != nil {
-		return c.JSON(http.StatusInternalServerError, err.Error())
+		log.Fatalln(err)
 	}
-	return c.JSON(http.StatusCreated, userRes)
+	fmt.Println("Connceted")
+	return db
 }
 
-func (uc *userController) LogIn(c echo.Context) error {
-	user := model.User{}
-	if err := c.Bind(&user); err != nil {
-		return c.JSON(http.StatusBadRequest, err.Error())
+func CloseDB(db *gorm.DB) {
+	sqlDB, _ := db.DB()
+	if err := sqlDB.Close(); err != nil {
+		log.Fatalln(err)
 	}
-	tokenString, err := uc.uu.Login(user)
-	if err != nil {
-		return c.JSON(http.StatusInternalServerError, err.Error())
-	}
-	cookie := new(http.Cookie)
-	cookie.Name = "token"
-	cookie.Value = tokenString
-	cookie.Expires = time.Now().Add(24 * time.Hour)
-	cookie.Path = "/"
-	cookie.Domain = os.Getenv("API_DOMAIN")
-	cookie.Secure = true
-	cookie.HttpOnly = true
-	cookie.SameSite = http.SameSiteNoneMode
-	c.SetCookie(cookie)
-	return c.NoContent(http.StatusOK)
-}
-
-func (uc *userController) LogOut(c echo.Context) error {
-	cookie := new(http.Cookie)
-	cookie.Name = "token"
-	cookie.Value = ""
-	cookie.Expires = time.Now()
-	cookie.Path = "/"
-	cookie.Domain = os.Getenv("API_DOMAIN")
-	cookie.Secure = true
-	cookie.HttpOnly = true
-	cookie.SameSite = http.SameSiteNoneMode
-	c.SetCookie(cookie)
-	return c.NoContent(http.StatusOK)
-}
-
-func (uc *userController) CsrfToken(c echo.Context) error {
-	token := c.Get("csrf").(string)
-	return c.JSON(http.StatusOK, echo.Map{
-		"csrf_token": token,
-	})
 }
